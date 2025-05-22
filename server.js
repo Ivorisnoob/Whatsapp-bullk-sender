@@ -13,8 +13,8 @@ const port = 3000;
 
 // Add rate limiting middleware
 const requestLimits = {
-    windowMs: 60 * 1000, // 1 minute
-    maxRequests: 120,      // Max 120 requests per minute (increased from 30)
+    windowMs: 60 * 1000, // 1 minute, because we're not about that waiting life
+    maxRequests: 120,      // Max 120 requests per minute (increased from 30, welp it was having some internal issues)
     requestCounts: new Map(),
     timeout: null
 };
@@ -73,7 +73,7 @@ const PROCESS_RETENTION_TIME = 24 * 60 * 60 * 1000;
 let whatsappSocket = null;
 let isConnected = false;
 let connectionTimeout = null;
-const CONNECTION_IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes idle timeout
+const CONNECTION_IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes idle timeout (ghost mode activated)
 
 // Add a variable to store the latest QR code
 let latestQrCode = '';
@@ -90,10 +90,10 @@ function scheduleDisconnection() {
         clearTimeout(connectionTimeout);
     }
     
-    // Set new timeout
+    // Set new timeout (setting boundaries, so healthy)
     connectionTimeout = setTimeout(() => {
         if (isConnected && whatsappSocket) {
-            console.log('Pausing WhatsApp connection due to inactivity');
+            console.log('Pausing WhatsApp connection due to inactivity'); // translation: you snooze, you lose
             // Just set the connection state to false without logging out
             isConnected = false;
             whatsappSocket = null;
@@ -229,7 +229,7 @@ async function initializeWhatsAppConnection() {
         const sock = makeWASocket({
             auth: state,
             // Removed printQRInTerminal as it's deprecated
-            browser: ['WhatsApp Bulk Sender', 'Chrome', '1.0.0'],
+            browser: ['Ivor\'s WhatsApp Bulk Sender', 'Chrome', '1.0.0'],
             syncFullHistory: false
         });
         
@@ -1286,4 +1286,4 @@ module.exports = {
     writeContactLists,
     initializeWhatsAppConnection,
     ensureWhatsAppConnection
-}; 
+}; // sharing is caring, bestie 

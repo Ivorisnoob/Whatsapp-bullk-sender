@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-bulk-sender",
   "version": "1.0.0",
-  "description": "A web application to send media to multiple WhatsApp groups",
+  "description": "A web application to send media to multiple WhatsApp groups (sliding into those DMs en masse)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -18,5 +18,6 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
-  }
+  },
+  "author": "Built with main character energy"
 }
