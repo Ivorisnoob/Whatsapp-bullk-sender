@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Bulk Sender</title>
+    <!-- Google Fonts: Roboto -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="shortcut icon" href="https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/WhatsApp.svg/2044px-WhatsApp.svg.png" type="image/x-icon">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        /* Connection status styles */
+        .connection-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .connection-dot.connected {
+            background-color: #28a745;
+        }
+        .connection-dot.disconnected {
+            background-color: #dc3545;
+        }
+        .connection-dot.connecting {
+            background-color: #ffc107;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
+        }
+        .connection-text {
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .connection-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        /* QR Code styling */
+        #qr-code-container {
+            margin: 20px auto;
+            max-width: 300px;
+            text-align: center;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+            display: none;
+        }
+        
+        .qr-header {
+            margin-bottom: 10px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        #qr-code {
+            margin: 0 auto;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation bar -->
+    <nav class="navbar navbar-expand-lg">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fab fa-whatsapp"></i> <!-- Changed to fab for brand icon -->
+                WhatsApp Bulk Sender
+            </a>
+            <!-- Optional: Add a toggle button for smaller screens if needed -->
+        </div>
+    </nav>
+    
+    <!-- Main content -->
+    <div class="container app-container">
+        <!-- Main application card -->
+        <div class="app-card shadow-sm mb-4">
+            <h1 class="app-title mb-4">WhatsApp Bulk Message Sender</h1>
+            
+            <!-- Navigation tabs -->
+            <ul class="nav nav-tabs mb-4" id="appTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="send-tab" data-bs-toggle="tab" data-bs-target="#send-content" type="button" role="tab" aria-controls="send-content" aria-selected="true">
+                        <i class="fas fa-paper-plane me-2"></i>Send Messages
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="manage-tab" data-bs-toggle="tab" data-bs-target="#manage-content" type="button" role="tab" aria-controls="manage-content" aria-selected="false">
+                        <i class="fas fa-address-book me-2"></i>Manage Contacts
+                    </button>
+                </li>
+            </ul>
+            
+            <!-- Tab content -->
+            <div class="tab-content" id="appTabsContent">
+                <!-- Send Messages Tab -->
+                <div class="tab-pane fade show active" id="send-content" role="tabpanel" aria-labelledby="send-tab">
+                    <!-- Connection Status Section -->
+                    <div class="container mt-4" id="connection-status-section">
+                        <div class="row">
+                            <div class="col-md-6 offset-md-3">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5>WhatsApp Connection Status</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="connection-status-container">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <div>
+                                                    <span class="connection-dot disconnected"></span>
+                                                    <span class="connection-text">WhatsApp: Disconnected</span>
+                                                </div>
+                                                <div class="connection-actions">
+                                                    <button class="btn btn-success btn-sm connect-btn">Connect</button>
+                                                    <button class="btn btn-danger btn-sm disconnect-btn" disabled>Disconnect</button>
+                                                    <button class="btn btn-warning btn-sm reset-btn" id="resetConnectionBtn">Reset</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- QR Code will appear here when needed -->
+                                        <div id="qr-code-container" class="text-center"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Media Upload Section -->
+                    <section class="mb-4">
+                        <h2 class="section-title">
+                            <i class="fas fa-photo-video"></i>Media <span class="text-muted fw-normal fs-6">(Optional)</span>
+                        </h2>
+                        <div class="preview-container" id="dropArea">
+                            <div class="preview-text text-center" id="previewText">
+                                <div class="icon fs-1 mb-3">
+                                    <i class="fas fa-cloud-upload-alt"></i>
+                                </div>
+                                <p class="mb-1">Drag & drop your image/video here</p>
+                                <p class="mb-2"><small>or click to select file</small></p>
+                                <small class="text-muted d-block">Supported: JPG, PNG, MP4, MOV</small>
+                                <small class="text-muted d-block">Media is optional for text-only messages</small>
+                            </div>
+                            <div id="preview" class="position-relative"></div> <!-- Added position-relative for remove button -->
+                        </div>
+                        <input type="file" id="fileInput" accept="image/*,video/*" class="d-none">
+                        <div class="d-grid">
+                            <button type="button" class="btn btn-secondary btn-icon" id="selectFileBtn">
+                                <i class="fas fa-folder-open"></i> Select File
+                            </button>
+                        </div>
+                    </section>
+                    
+                    <!-- Message Section -->
+                    <section class="mb-4">
+                        <h2 class="section-title">
+                            <i class="fas fa-comment-alt"></i>Message
+                        </h2>
+                        <textarea class="form-control" id="caption" rows="4" placeholder="Enter your message here..."></textarea>
+                        <small class="form-text text-muted mt-1 d-block">This message can be sent with or without media.</small>
+                    </section>
+                    
+                    <!-- Recipient List Section -->
+                    <section class="mb-4">
+                        <h2 class="section-title">
+                            <i class="fas fa-users"></i>Recipient List
+                        </h2>
+                        <select class="form-select" id="listType">
+                            <option value="" disabled selected>Choose a recipient list...</option>
+                            <option value="aagna">Aagna</option>
+                            <option value="trione">Trione</option>
+                            <option value="general">General</option>
+                            <option value="contacts">Individual Contacts</option>
+                        </select>
+                        <div class="mt-2" id="selectedListInfo"></div>
+                    </section>
+                    
+                    <!-- Send Button Section -->
+                    <section class="mt-4 pt-3 border-top">
+                        <div class="d-grid">
+                            <button type="button" class="btn btn-primary btn-lg btn-icon" id="sendBtn" disabled>
+                                <i class="fas fa-paper-plane"></i> Send to All
+                            </button>
+                        </div>
+                    </section>
+                </div>
+                
+                <!-- Manage Contacts Tab -->
+                <div class="tab-pane fade" id="manage-content" role="tabpanel" aria-labelledby="manage-tab">
+                    <!-- Excel Import Section -->
+                    <section class="mb-4">
+                        <h2 class="section-title">
+                            <i class="fas fa-file-excel"></i>Import From Excel
+                        </h2>
+                        <div class="card border-light mb-3">
+                            <div class="card-body">
+                                <p class="text-muted mb-3">Import WhatsApp groups and contacts from an Excel file (.xlsx)</p>
+                                
+                                <div class="row g-3 align-items-center mb-3">
+                                    <div class="col-md-4">
+                                        <label for="excelListType" class="form-label">Target List:</label>
+                                        <select class="form-select" id="excelListType">
+                                            <option value="" disabled selected>Select a list to import to...</option>
+                                            <option value="aagna">Aagna</option>
+                                            <option value="trione">Trione</option>
+                                            <option value="oem">OEM</option>
+                                            <option value="management">Management</option>
+                                            <option value="new">Create New List</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4 d-none" id="newListNameContainer">
+                                        <label for="newListName" class="form-label">New List Name:</label>
+                                        <input type="text" class="form-control" id="newListName" placeholder="Enter list name">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="sheetName" class="form-label">Sheet Name:</label>
+                                        <input type="text" class="form-control" id="sheetName" placeholder="E.g. Data sheet" value="Data sheet">
+                                    </div>
+                                </div>
+                                
+                                <div class="excel-upload mb-3">
+                                    <input type="file" class="form-control" id="excelFileInput" accept=".xlsx, .xls">
+                                    <small class="form-text text-muted">Excel file should have columns for ID, Name, Phone/Group ID, and Type</small>
+                                </div>
+                                
+                                <div class="d-flex justify-content-between">
+                                    <button type="button" class="btn btn-secondary btn-icon" id="downloadTemplateBtn">
+                                        <i class="fas fa-download"></i> Download Template
+                                    </button>
+                                    <button type="button" class="btn btn-primary btn-icon" id="importExcelBtn" disabled>
+                                        <i class="fas fa-file-import"></i> Import Data
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                    
+                    <!-- Manage Lists Section -->
+                    <section class="mb-4">
+                        <h2 class="section-title">
+                            <i class="fas fa-list-ul"></i>Manage Contact Lists
+                        </h2>
+                        <div class="card border-light">
+                            <div class="card-body">
+                                <div class="row g-3 mb-3">
+                                    <div class="col-md-6">
+                                        <select class="form-select" id="viewListType">
+                                            <option value="" disabled selected>Select a list to view...</option>
+                                            <option value="aagna">Aagna</option>
+                                            <option value="trione">Trione</option>
+                                            <option value="oem">OEM</option>
+                                            <option value="management">Management</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="d-flex gap-2 justify-content-end">
+                                            <button type="button" class="btn btn-outline-danger btn-sm btn-icon" id="deleteListBtn" disabled>
+                                                <i class="fas fa-trash-alt"></i> Delete List
+                                            </button>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm btn-icon" id="exportListBtn" disabled>
+                                                <i class="fas fa-file-export"></i> Export
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary btn-sm btn-icon" id="fetchGroupDetailsBtn" disabled>
+                                                <i class="fas fa-sync-alt"></i> Fetch Group Details
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div id="contactListContainer" class="mt-3">
+                                    <div class="contacts-table-container">
+                                        <table class="table table-striped table-hover" id="contactsTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>Party Code</th>
+                                                    <th>Name</th>
+                                                    <th>Group ID/Phone</th>
+                                                    <th>Type</th>
+                                                    <th>Tier</th>
+                                                    <th>Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="contactsTableBody">
+                                                <tr>
+                                                    <td colspan="6" class="text-center">Select a list to view contacts</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div id="contactsPagination" class="d-flex justify-content-between align-items-center mt-3">
+                                        <div class="pagination-info">
+                                            Showing <span id="paginationStart">0</span> to <span id="paginationEnd">0</span> of <span id="paginationTotal">0</span> entries
+                                        </div>
+                                        <nav aria-label="Contacts pagination">
+                                            <ul class="pagination pagination-sm" id="paginationControls">
+                                                <!-- Pagination will be dynamically added here -->
+                                            </ul>
+                                        </nav>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Status and progress card -->
+        <div class="app-card shadow-sm progress-container" id="progressCard" style="display: none;">
+            <h2 class="section-title">
+                <i class="fas fa-tasks"></i>Sending Progress
+            </h2>
+            <div class="progress mb-2">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+            <p class="text-center mb-3">
+                Sent <span id="sentCount">0</span> of <span id="totalCount">0</span> messages
+            </p>
+            
+            <div class="status-section">
+                <div class="status-header">
+                    <i class="fas fa-clipboard-list"></i>Sending Status Details
+                </div>
+                <div id="statusList"></div>
+            </div>
+        </div>
+        
+        <!-- Modal for Group Details -->
+        <div class="modal fade" id="groupDetailsModal" tabindex="-1" aria-labelledby="groupDetailsModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="groupDetailsModalLabel">Group Details</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="groupDetailsContent">
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Fetching group details...</p>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Confirmation Modal -->
+        <div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="confirmationModalLabel">Confirm Action</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="confirmationModalBody">
+                        Are you sure you want to proceed with this action?
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-danger" id="confirmActionBtn">Confirm</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Footer -->
+    <footer class="footer mt-auto py-3">
+        <div class="container text-center">
+            <span class="text-muted">Ivor's Inc. &copy; 2025 | Powered by Ivor's WhatsApp Web API</span>
+        </div>
+    </footer>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html> 

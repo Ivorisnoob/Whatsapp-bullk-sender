@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Authentication data
+auth/
+uploads/
+# Group lists data
+groups_lists.json
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.xlsx
+# OS files
+.DS_Store
+Thumbs.db 
