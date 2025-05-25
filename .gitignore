@@ -3,6 +3,7 @@ node_modules/
 
 # Authentication data
 auth/
+ye/
 uploads/
 # Group lists data
 groups_lists.json

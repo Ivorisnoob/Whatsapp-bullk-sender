@@ -943,8 +943,15 @@ async function sendMediaToGroups(mediaPath, caption, groups, mimeType, processId
     
     // Determine file type
     const isVideo = mimeType.startsWith('video/');
-    
-    console.log(`Starting to send ${isVideo ? 'video' : 'image'} to ${groups.length} recipients (ProcessID: ${processId})`);
+    const isImage = mimeType.startsWith('image/');
+    const isDocument = !isImage && !isVideo; // treat anything else as document
+
+    let typeLabel = 'media';
+    if (isVideo) typeLabel = 'video';
+    else if (isImage) typeLabel = 'image';
+    else if (isDocument) typeLabel = 'document';
+
+    console.log(`Starting to send ${typeLabel} to ${groups.length} recipients (ProcessID: ${processId})`);
     
     // Send to each group/contact
     for (const group of groups) {
@@ -958,11 +965,18 @@ async function sendMediaToGroups(mediaPath, caption, groups, mimeType, processId
                     caption: caption,
                     mimetype: mimeType
                 };
-            } else {
+            } else if (isImage) {
                 message = {
                     image: { url: mediaPath },
                     caption: caption,
                     mimetype: mimeType
+                };
+            } else if (isDocument) {
+                message = {
+                    document: { url: mediaPath },
+                    mimetype: mimeType,
+                    fileName: path.basename(mediaPath),
+                    caption: caption
                 };
             }
             

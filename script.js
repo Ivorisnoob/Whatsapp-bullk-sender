@@ -125,9 +125,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Show file info with toast notification
         const fileSize = formatFileSize(file.size);
-        const fileType = file.type.split('/')[0];
-        const icon = fileType === 'image' ? 'image' : 'video';
-        
+        let fileType = file.type.split('/')[0];
+        if (fileType !== 'image' && fileType !== 'video') fileType = 'document';
         addStatusMessage(`Selected ${fileType}: ${file.name} (${fileSize})`, 'info');
     }
     
@@ -143,8 +142,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 URL.revokeObjectURL(this.src);
             }
             preview.appendChild(img);
-            
-            // Add a remove button
             addRemoveButton();
         } else if (file.type.startsWith('video/')) {
             const video = document.createElement('video');
@@ -154,8 +151,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 URL.revokeObjectURL(this.src);
             }
             preview.appendChild(video);
-            
-            // Add a remove button
+            addRemoveButton();
+        } else {
+            // Document preview: show icon and file name
+            const docDiv = document.createElement('div');
+            docDiv.className = 'document-preview d-flex align-items-center gap-2';
+            docDiv.innerHTML = `
+                <i class="fas fa-file-alt fa-2x text-primary"></i>
+                <span>${file.name}</span>
+            `;
+            preview.appendChild(docDiv);
             addRemoveButton();
         }
     }
@@ -238,10 +243,15 @@ document.addEventListener('DOMContentLoaded', function() {
         // Allow sending if either there's a caption or a file, AND there are recipients
         if (selectedGroups.length > 0 && (selectedFile || captionInput.value.trim())) {
             sendBtn.disabled = false;
-            
             // Update button text based on what we're sending
             if (selectedFile) {
-                sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Media & Text';
+                if (selectedFile.type.startsWith('image/')) {
+                    sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Media & Text';
+                } else if (selectedFile.type.startsWith('video/')) {
+                    sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Media & Text';
+                } else {
+                    sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Document & Text';
+                }
             } else if (captionInput.value.trim()) {
                 sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Text Only';
             }
