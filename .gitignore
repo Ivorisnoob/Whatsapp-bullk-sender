@@ -3,6 +3,7 @@ node_modules/
 
 # Authentication data
 auth/
+auth1/
 ye/
 uploads/
 # Group lists data

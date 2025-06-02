@@ -7,6 +7,55 @@ const xlsx = require('xlsx');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 
+// Helper function for random delay
+function getRandomDelay() {
+    // Random delay between 0 and 5000 milliseconds (0 to 5 seconds)
+    return Math.floor(Math.random() * 5000);
+}
+
+// Helper function for delay
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Exponential backoff retry helper
+async function retry(operation, maxAttempts = 3, initialDelay = 1000) {
+    let attempt = 1;
+    let lastError;
+
+    while (attempt <= maxAttempts) {
+        try {
+            return await operation();
+        } catch (error) {
+            lastError = error;
+            
+            // Check if the error is retryable
+            if (error.data === 404 || 
+                error.message.includes('item-not-found') || 
+                error.message.includes('connection closed') ||
+                error.name === 'SessionError') {
+                
+                // Calculate delay with exponential backoff and jitter
+                const backoffDelay = initialDelay * Math.pow(2, attempt - 1);
+                const jitter = Math.random() * 1000; // Add up to 1 second of random jitter
+                const retryDelay = backoffDelay + jitter;
+                
+                console.log(`Attempt ${attempt} failed, retrying in ${Math.round(retryDelay/1000)}s...`);
+                await delay(retryDelay);
+                attempt++;
+                continue;
+            }
+            
+            // If error is not retryable, throw immediately
+            throw error;
+        }
+    }
+    
+    // If we get here, all attempts failed
+    console.error(`Failed after ${maxAttempts} attempts`);
+    throw lastError;
+}
+
 // Create Express app
 const app = express();
 const port = 3000;
@@ -811,7 +860,7 @@ async function sendTextToGroups(message, groups, processId) {
             failureCount: groups.length,
             error: 'WhatsApp connection not ready'
         };
-        processStore.set(processId, errorResult);
+        processStore.set(errorResult.processId, errorResult);
         return errorResult;
     }
     
@@ -834,8 +883,16 @@ async function sendTextToGroups(message, groups, processId) {
     // Send to each group/contact
     for (const group of groups) {
         try {
-            // Send the text message
-            await whatsappSocket.sendMessage(group.id, { text: message });
+            // Add random delay before sending
+            const delayMs = getRandomDelay();
+            console.log(`Waiting ${delayMs}ms before sending to ${group.name || group.id}`);
+            await delay(delayMs);
+
+            // Send the text message with retry mechanism
+            await retry(async () => {
+                await whatsappSocket.sendMessage(group.id, { text: message });
+            });
+            
             console.log(`✅ Sent to ${group.name || group.id}`);
             results.successful.push({
                 id: group.id,
@@ -849,7 +906,7 @@ async function sendTextToGroups(message, groups, processId) {
                 failureCount: results.failed.length
             });
         } catch (error) {
-            console.error(`❌ Failed to send to ${group.name || group.id}:`, error);
+            console.error(`❌ Failed to send to ${group.name || group.id} after retries:`, error);
             
             // Determine error type for better error messages
             let errorMessage = error.message;
@@ -956,6 +1013,11 @@ async function sendMediaToGroups(mediaPath, caption, groups, mimeType, processId
     // Send to each group/contact
     for (const group of groups) {
         try {
+            // Add random delay before sending
+            const delayMs = getRandomDelay();
+            console.log(`Waiting ${delayMs}ms before sending to ${group.name || group.id}`);
+            await delay(delayMs);
+            
             // Prepare the message based on media type
             let message;
             
@@ -980,8 +1042,11 @@ async function sendMediaToGroups(mediaPath, caption, groups, mimeType, processId
                 };
             }
             
-            // Send the message
-            await whatsappSocket.sendMessage(group.id, message);
+            // Send the message with retry mechanism
+            await retry(async () => {
+                await whatsappSocket.sendMessage(group.id, message);
+            });
+            
             console.log(`✅ Sent to ${group.name || group.id}`);
             results.successful.push({
                 id: group.id,
@@ -1300,4 +1365,4 @@ module.exports = {
     writeContactLists,
     initializeWhatsAppConnection,
     ensureWhatsAppConnection
-}; // sharing is caring, bestie 
+}; // sharing is caring, bestie
