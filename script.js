@@ -1,3 +1,10 @@
+// Global variables to store groups and selections
+let whatsappGroups = [];
+let selectedGroups = [];
+let selectedListGroups = [];
+let selectedFiles = [];  // New array to store multiple files
+const MAX_FILES = 5;     // Maximum number of files allowed
+
 // Add status message - Move this outside the DOMContentLoaded event
 function addStatusMessage(message, type) {
     const statusList = document.getElementById('statusList');
@@ -57,7 +64,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Variables
     let selectedFile = null;
-    let selectedGroups = [];
     let currentGroupDetails = null;
     let currentAction = null;
     let currentPageContacts = [];
@@ -96,10 +102,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function handleDrop(e) {
         const dt = e.dataTransfer;
         const files = dt.files;
-        
-        if (files.length > 0) {
-            handleFiles(files[0]);
-        }
+        handleFiles(files);
     }
     
     // Click to select file
@@ -113,27 +116,45 @@ document.addEventListener('DOMContentLoaded', function() {
     
     fileInput.addEventListener('change', (e) => {
         if (e.target.files.length > 0) {
-            handleFiles(e.target.files[0]);
+            handleFiles(e.target.files);
         }
     });
     
     // Handle selected files
-    function handleFiles(file) {
-        selectedFile = file;
-        displayPreview(file);
+    function handleFiles(files) {
+        const mediaCounter = document.getElementById('mediaCounter');
+        const remainingSlots = MAX_FILES - selectedFiles.length;
+        const filesToAdd = Array.from(files).slice(0, remainingSlots);
+
+        filesToAdd.forEach(file => {
+            selectedFiles.push(file);
+            displayPreview(file);
+            
+            // Show file info with toast notification
+            const fileSize = formatFileSize(file.size);
+            let fileType = file.type.split('/')[0];
+            if (fileType !== 'image' && fileType !== 'video') fileType = 'document';
+            addStatusMessage(`Added ${fileType}: ${file.name} (${fileSize})`, 'info');
+        });
+
+        // Update counter
+        mediaCounter.textContent = `${selectedFiles.length}/${MAX_FILES} files selected`;
         validateForm();
-        
-        // Show file info with toast notification
-        const fileSize = formatFileSize(file.size);
-        let fileType = file.type.split('/')[0];
-        if (fileType !== 'image' && fileType !== 'video') fileType = 'document';
-        addStatusMessage(`Selected ${fileType}: ${file.name} (${fileSize})`, 'info');
+
+        if (selectedFiles.length >= MAX_FILES && files.length > remainingSlots) {
+            addStatusMessage(`Maximum ${MAX_FILES} files allowed. Additional files were ignored.`, 'warning');
+        }
     }
-    
+
     // Display preview of the selected file
     function displayPreview(file) {
+        const previewText = document.getElementById('previewText');
+        const preview = document.getElementById('preview');
+        
         previewText.style.display = 'none';
-        preview.innerHTML = '';
+        
+        const previewItem = document.createElement('div');
+        previewItem.className = 'media-preview-item';
         
         if (file.type.startsWith('image/')) {
             const img = document.createElement('img');
@@ -141,8 +162,7 @@ document.addEventListener('DOMContentLoaded', function() {
             img.onload = function() {
                 URL.revokeObjectURL(this.src);
             }
-            preview.appendChild(img);
-            addRemoveButton();
+            previewItem.appendChild(img);
         } else if (file.type.startsWith('video/')) {
             const video = document.createElement('video');
             video.src = URL.createObjectURL(file);
@@ -150,43 +170,52 @@ document.addEventListener('DOMContentLoaded', function() {
             video.onloadedmetadata = function() {
                 URL.revokeObjectURL(this.src);
             }
-            preview.appendChild(video);
-            addRemoveButton();
+            previewItem.appendChild(video);
         } else {
-            // Document preview: show icon and file name
             const docDiv = document.createElement('div');
-            docDiv.className = 'document-preview d-flex align-items-center gap-2';
+            docDiv.className = 'document-preview';
             docDiv.innerHTML = `
-                <i class="fas fa-file-alt fa-2x text-primary"></i>
+                <i class="fas fa-file-alt"></i>
                 <span>${file.name}</span>
             `;
-            preview.appendChild(docDiv);
-            addRemoveButton();
+            previewItem.appendChild(docDiv);
         }
+        
+        addRemoveButton(previewItem, file);
+        preview.appendChild(previewItem);
     }
-    
+
     // Function to add a remove button to the preview
-    function addRemoveButton() {
+    function addRemoveButton(previewItem, file) {
         const removeBtn = document.createElement('button');
-        removeBtn.className = 'btn btn-sm btn-danger remove-media-btn';
-        removeBtn.innerHTML = '<i class="fas fa-times"></i> Remove';
+        removeBtn.className = 'remove-media-btn';
+        removeBtn.innerHTML = '<i class="fas fa-times"></i>';
         removeBtn.onclick = function(e) {
             e.preventDefault();
             e.stopPropagation();
             
-            // Clear the preview
-            preview.innerHTML = '';
-            previewText.style.display = 'block';
+            // Remove from selectedFiles array
+            const fileIndex = selectedFiles.indexOf(file);
+            if (fileIndex > -1) {
+                selectedFiles.splice(fileIndex, 1);
+            }
             
-            // Clear the selected file
-            selectedFile = null;
-            fileInput.value = '';
+            // Remove preview
+            previewItem.remove();
             
-            // Revalidate the form
+            // Update counter
+            const mediaCounter = document.getElementById('mediaCounter');
+            mediaCounter.textContent = `${selectedFiles.length}/${MAX_FILES} files selected`;
+            
+            // Show preview text if no files
+            if (selectedFiles.length === 0) {
+                document.getElementById('previewText').style.display = 'block';
+            }
+            
             validateForm();
         };
         
-        preview.appendChild(removeBtn);
+        previewItem.appendChild(removeBtn);
     }
     
     // Helper function to format file size
@@ -240,19 +269,21 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Form validation
     function validateForm() {
-        // Allow sending if either there's a caption or a file, AND there are recipients
-        if (selectedGroups.length > 0 && (selectedFile || captionInput.value.trim())) {
+        const hasFiles = selectedFiles.length > 0;
+        const hasRecipients = selectedGroups.length > 0 || selectedListGroups.length > 0;
+        const hasCaption = captionInput.value.trim();
+        
+        if (hasRecipients && (hasFiles || hasCaption)) {
             sendBtn.disabled = false;
-            // Update button text based on what we're sending
-            if (selectedFile) {
-                if (selectedFile.type.startsWith('image/')) {
-                    sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Media & Text';
-                } else if (selectedFile.type.startsWith('video/')) {
-                    sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Media & Text';
-                } else {
-                    sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Document & Text';
-                }
-            } else if (captionInput.value.trim()) {
+            if (hasFiles) {
+                const fileTypes = selectedFiles.map(file => {
+                    if (file.type.startsWith('image/')) return 'Media';
+                    if (file.type.startsWith('video/')) return 'Media';
+                    return 'Document';
+                });
+                const uniqueTypes = [...new Set(fileTypes)];
+                sendBtn.innerHTML = `<i class="fas fa-paper-plane"></i> Send ${uniqueTypes.join('/')} & Text`;
+            } else {
                 sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Text Only';
             }
         } else {
@@ -263,297 +294,72 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Handle send button click
     sendBtn.addEventListener('click', async function() {
-        if (!(selectedFile || captionInput.value.trim()) || selectedGroups.length === 0) {
-            return;
-        }
+        // Disable the button and list selection during sending
+        this.disabled = true;
+        listTypeSelect.disabled = true;
         
         // Show progress container
         progressCard.style.display = 'block';
-        totalCountEl.textContent = selectedGroups.length;
-        sentCountEl.textContent = '0';
+        
+        // Reset progress
         progressBar.style.width = '0%';
+        progressBar.setAttribute('aria-valuenow', 0);
         
-        // Clear previous status
-        statusList.innerHTML = '';
+        // Calculate total messages to send
+        const totalRecipients = selectedGroups.length + selectedListGroups.length;
+        totalCountEl.textContent = totalRecipients;
+        sentCountEl.textContent = '0';
         
-        // Disable form while sending
-        sendBtn.disabled = true;
-        listTypeSelect.disabled = true;
-        
-        // Determine if we're sending text-only or media
-        const isTextOnly = !selectedFile && captionInput.value.trim();
-        
-        addStatusMessage(`Preparing to send ${isTextOnly ? 'text message' : 'media'} to ${selectedGroups.length} recipients...`, 'info');
-        
-        // Check if WhatsApp is connected first
-        const connResponse = await fetch('/connection-status');
-        const connStatus = await connResponse.json();
-        
-        if (!connStatus.connected) {
-            addStatusMessage('WhatsApp is not connected. Attempting to connect...', 'warning');
+        try {
+            // Check WhatsApp connection
+            const connectionResponse = await fetch('/check-connection');
+            const connectionData = await connectionResponse.json();
             
-            try {
-                const connectResponse = await fetch('/connect-whatsapp', {
-                    method: 'POST'
-                });
-                
-                const connectData = await connectResponse.json();
-                
-                if (!connectData.success) {
-                    addStatusMessage(`Failed to connect to WhatsApp: ${connectData.message}`, 'error');
-                    sendBtn.disabled = false;
+            if (!connectionData.connected) {
+                try {
+                    addStatusMessage('WhatsApp not connected, attempting to connect...', 'warning');
+                    await connectToWhatsApp();
+                } catch (error) {
+                    console.error('Error connecting to WhatsApp:', error);
+                    addStatusMessage(`Error connecting to WhatsApp: ${error.message}`, 'error');
+                    this.disabled = false;
                     listTypeSelect.disabled = false;
                     return;
                 }
-                
-                // Update connection UI
-                updateConnectionUI(true);
-                addStatusMessage('WhatsApp connected successfully, proceeding with send', 'success');
-            } catch (error) {
-                console.error('Error connecting to WhatsApp:', error);
-                addStatusMessage(`Error connecting to WhatsApp: ${error.message}`, 'error');
-                sendBtn.disabled = false;
-                listTypeSelect.disabled = false;
-                return;
             }
-        }
-        
-        // Prepare form data
-        const formData = new FormData();
-        if (selectedFile) {
-        formData.append('media', selectedFile);
-        }
-        formData.append('caption', captionInput.value);
-        formData.append('groups', JSON.stringify(selectedGroups));
-        formData.append('isTextOnly', isTextOnly ? 'true' : 'false');
-        
-        console.log('Sending with isTextOnly:', isTextOnly);
-        
-        try {
+            
+            // Prepare form data
+            const formData = new FormData();
+            selectedFiles.forEach((file, index) => {
+                formData.append(`media${index}`, file);
+            });
+            formData.append('caption', captionInput.value);
+            formData.append('groups', JSON.stringify(selectedGroups));
+            formData.append('isTextOnly', selectedFiles.length === 0 ? 'true' : 'false');
+            
             // Send the request to our backend API
             const response = await fetch('/send-media', {
                 method: 'POST',
                 body: formData
             });
             
-            const result = await response.json();
+            const data = await response.json();
             
-            if (result.success) {
-                // Show appropriate success message based on message type
-                const successMsg = isTextOnly 
-                    ? `<i class="fas fa-check-circle status-icon"></i> Text message sending started. Process ID: ${result.processId}` 
-                    : `<i class="fas fa-check-circle status-icon"></i> Media upload successful. Process ID: ${result.processId}`;
-                    
-                addStatusMessage(successMsg, 'success');
-                
-                // Start polling for real status updates
-                pollProcessStatus(result.processId);
+            if (data.success) {
+                addStatusMessage(`Process started: ${data.message}`, 'success');
             } else {
-                addStatusMessage(`<i class="fas fa-exclamation-triangle status-icon"></i> Error: ${result.message}`, 'error');
-                sendBtn.disabled = false;
+                addStatusMessage(`Error: ${data.message}`, 'error');
+                this.disabled = false;
                 listTypeSelect.disabled = false;
             }
-        } catch (error) {
-            console.error('Error sending message:', error);
-            const errorMsg = isTextOnly 
-                ? `<i class="fas fa-exclamation-circle status-icon"></i> Error sending text message: ${error.message}` 
-                : `<i class="fas fa-exclamation-circle status-icon"></i> Error sending media: ${error.message}`;
             
-            addStatusMessage(errorMsg, 'error');
-            sendBtn.disabled = false;
+        } catch (error) {
+            console.error('Error:', error);
+            addStatusMessage(`Error sending messages: ${error.message}`, 'error');
+            this.disabled = false;
             listTypeSelect.disabled = false;
         }
     });
-    
-    // Poll the server for status updates on the sending process
-    function pollProcessStatus(processId) {
-        const pollInterval = 1000; // Poll every second
-        let pollTimer;
-        
-        // Function to fetch status
-        async function fetchStatus() {
-            try {
-                const response = await fetch(`/status/${processId}`);
-                
-                if (!response.ok) {
-                    // If response is not OK, stop polling and show error
-                    clearInterval(pollTimer);
-                    const errorData = await response.json();
-                    addStatusMessage(`<i class="fas fa-exclamation-triangle status-icon"></i> Error: ${errorData.message || 'Failed to fetch status'}`, 'error');
-                    sendBtn.disabled = false;
-                    listTypeSelect.disabled = false;
-                    return;
-                }
-                
-                const statusData = await response.json();
-                
-                // Update progress
-                updateProgress(statusData.successCount + statusData.failureCount, statusData.total);
-                
-                // Display WhatsApp-specific errors if present
-                if (statusData.errors && statusData.errors.length > 0) {
-                    // Create a unique ID for each error to avoid duplicates
-                    const errorKey = `whatsapp-errors-${processId}`;
-                    const existingErrorMsg = document.getElementById(errorKey);
-                    
-                    if (!existingErrorMsg) {
-                        // Create a warning message with all errors
-                        const errorListItems = statusData.errors.map(err => 
-                            `<li>${err}</li>`
-                        ).join('');
-                        
-                        const errorHTML = `
-                            <i class="fas fa-exclamation-triangle status-icon"></i>
-                            <div>
-                                <strong>WhatsApp Connection Issues:</strong>
-                                <ul class="mb-0 mt-1">${errorListItems}</ul>
-                                <small>These errors may affect message delivery.</small>
-                                <button class="btn btn-sm btn-warning mt-2 reset-connection-btn">
-                                    <i class="fas fa-sync-alt"></i> Reset WhatsApp Connection
-                                </button>
-                            </div>
-                        `;
-                        
-                        const errorItem = document.createElement('div');
-                        errorItem.className = 'status-item status-warning';
-                        errorItem.id = errorKey;
-                        errorItem.innerHTML = errorHTML;
-                        statusList.prepend(errorItem);
-                        
-                        // Add event listener to the reset button
-                        const resetBtn = errorItem.querySelector('.reset-connection-btn');
-                        resetBtn.addEventListener('click', async () => {
-                            try {
-                                resetBtn.disabled = true;
-                                resetBtn.innerHTML = '<i class="fas fa-spin fa-spinner"></i> Resetting...';
-                                
-                                const response = await fetch('/reset-connection', {
-                                    method: 'POST'
-                                });
-                                
-                                const result = await response.json();
-                                
-                                if (result.success) {
-                                    addStatusMessage(`<i class="fas fa-info-circle status-icon"></i> ${result.message}`, 'info');
-                                    // Remove the error message
-                                    errorItem.remove();
-                                } else {
-                                    addStatusMessage(`<i class="fas fa-exclamation-circle status-icon"></i> Failed to reset: ${result.message}`, 'error');
-                                    resetBtn.disabled = false;
-                                    resetBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Reset WhatsApp Connection';
-                                }
-                            } catch (error) {
-                                console.error('Error resetting connection:', error);
-                                addStatusMessage(`<i class="fas fa-exclamation-circle status-icon"></i> Error resetting connection: ${error.message}`, 'error');
-                                resetBtn.disabled = false;
-                                resetBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Reset WhatsApp Connection';
-                            }
-                        });
-                    }
-                }
-                
-                // Handle fatal error
-                if (statusData.error) {
-                    const errorId = `error-fatal-${processId}`;
-                    if (!document.getElementById(errorId)) {
-                        addStatusMessage(`<i class="fas fa-times-circle status-icon"></i> Fatal Error: ${statusData.error}`, 'error');
-                    }
-                }
-                
-                // Add status messages for newly completed items
-                if (statusData.successful && statusData.successful.length > 0) {
-                    // Get the IDs of recipients we've already logged
-                    const existingStatusItems = statusList.querySelectorAll('.status-success, .status-error');
-                    const processedIds = new Set();
-                    
-                    existingStatusItems.forEach(item => {
-                        const idMatch = item.innerHTML.match(/data-id="([^"]+)"/);
-                        if (idMatch && idMatch[1]) {
-                            processedIds.add(idMatch[1]);
-                        }
-                    });
-                    
-                    // Add messages for new successful sends
-                    statusData.successful.forEach(recipient => {
-                        if (!processedIds.has(recipient.id)) {
-                            addStatusMessage(`<i class="fas fa-check status-icon"></i> <span data-id="${recipient.id}">Sent to ${recipient.name || recipient.id}</span>`, 'success');
-                            processedIds.add(recipient.id);
-                        }
-                    });
-                    
-                    // Add messages for new failed sends
-                    statusData.failed.forEach(recipient => {
-                        if (!processedIds.has(recipient.id)) {
-                            addStatusMessage(`<i class="fas fa-times status-icon"></i> <span data-id="${recipient.id}">Failed to send to ${recipient.name || recipient.id}</span>: ${recipient.error || 'Unknown error'}`, 'error');
-                            processedIds.add(recipient.id);
-                        }
-                    });
-                }
-                
-                // If process is complete, stop polling and show completion message
-                if (statusData.completed) {
-                    clearInterval(pollTimer);
-                    addStatusMessage(`<i class="fas fa-info-circle status-icon"></i> Completed sending to all recipients: ${statusData.successCount} successful, ${statusData.failureCount} failed`, 'info');
-                    sendBtn.disabled = false;
-                    listTypeSelect.disabled = false;
-                    
-                    // Scroll to the bottom to show the completion message
-                    const statusSection = document.querySelector('.status-section');
-                    statusSection.scrollTop = statusSection.scrollHeight;
-                }
-            } catch (error) {
-                console.error('Error fetching status:', error);
-                addStatusMessage(`<i class="fas fa-exclamation-circle status-icon"></i> Error fetching status: ${error.message}`, 'error');
-            }
-        }
-        
-        // Initial status fetch
-        fetchStatus();
-        
-        // Start the polling interval
-        pollTimer = setInterval(fetchStatus, pollInterval);
-    }
-    
-    // Simulate progress updates (in a real app, this would poll the server for status)
-    function startSimulatedProgress(groups, processId) {
-        let sent = 0;
-        const total = groups.length;
-        
-        // Simulate sending with delays to show progress
-        groups.forEach((group, index) => {
-            setTimeout(() => {
-                // Simulate success/failure (90% success rate)
-                const success = Math.random() > 0.1;
-                
-                sent++;
-                updateProgress(sent, total);
-                
-                if (success) {
-                    addStatusMessage(`<i class="fas fa-check status-icon"></i> Sent to ${group.name || group.id}`, 'success');
-                } else {
-                    addStatusMessage(`<i class="fas fa-times status-icon"></i> Failed to send to ${group.name || group.id}`, 'error');
-                }
-                
-                // When all done
-                if (sent === total) {
-                    addStatusMessage(`<i class="fas fa-info-circle status-icon"></i> Completed sending to all recipients`, 'info');
-                    sendBtn.disabled = false;
-                    listTypeSelect.disabled = false;
-                    
-                    // Scroll to the bottom to show the completion message
-                    const statusSection = document.querySelector('.status-section');
-                    statusSection.scrollTop = statusSection.scrollHeight;
-                }
-            }, 500 * (index + 1)); // Stagger the sends for demo
-        });
-    }
-    
-    // Update progress bar
-    function updateProgress(sent, total) {
-        const percentage = (sent / total) * 100;
-        progressBar.style.width = `${percentage}%`;
-        sentCountEl.textContent = sent;
-    }
     
     // ---------------------------------------------------------
     // Excel Import Functions
@@ -1800,4 +1606,895 @@ function resetWhatsAppConnection() {
             resetBtn.textContent = originalText;
             resetBtn.disabled = false;
         });
-} 
+};
+
+// Initialize WhatsApp groups functionality
+document.addEventListener('DOMContentLoaded', function() {
+    const fetchWhatsAppGroupsBtn = document.getElementById('fetchWhatsAppGroups');
+    const whatsappGroupsContainer = document.querySelector('.whatsapp-groups-container');
+    const whatsappGroupsList = document.getElementById('whatsappGroupsList');
+    const selectAllGroups = document.getElementById('selectAllGroups');
+    const deselectAllGroups = document.getElementById('deselectAllGroups');
+
+    // Fetch WhatsApp groups when button is clicked
+    fetchWhatsAppGroupsBtn.addEventListener('click', async function() {
+        try {
+            fetchWhatsAppGroupsBtn.disabled = true;
+            fetchWhatsAppGroupsBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+            
+            const response = await fetch('/whatsapp-groups');
+            const data = await response.json();
+            
+            if (data.success) {
+                whatsappGroups = data.groups;
+                displayWhatsAppGroups(whatsappGroups);
+                whatsappGroupsContainer.style.display = 'block';
+                addStatusMessage('Successfully fetched WhatsApp groups', 'success');
+            } else {
+                addStatusMessage(`Error fetching groups: ${data.message}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error fetching WhatsApp groups:', error);
+            addStatusMessage('Error fetching WhatsApp groups. Please try again.', 'error');
+        } finally {
+            fetchWhatsAppGroupsBtn.disabled = false;
+            fetchWhatsAppGroupsBtn.innerHTML = '<i class="fas fa-sync"></i> Fetch WhatsApp Groups';
+        }
+    });
+
+    // Handle select/deselect all
+    selectAllGroups.addEventListener('click', function() {
+        const checkboxes = whatsappGroupsList.querySelectorAll('input[type="checkbox"]');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = true;
+            handleGroupSelection(checkbox);
+        });
+    });
+
+    deselectAllGroups.addEventListener('click', function() {
+        const checkboxes = whatsappGroupsList.querySelectorAll('input[type="checkbox"]');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = false;
+            handleGroupSelection(checkbox);
+        });
+    });
+});
+
+// Function to display WhatsApp groups
+function displayWhatsAppGroups(groups) {
+    const whatsappGroupsList = document.getElementById('whatsappGroupsList');
+    whatsappGroupsList.innerHTML = '';
+    
+    groups.forEach(group => {
+        const groupItem = document.createElement('div');
+        groupItem.className = 'list-group-item';
+        groupItem.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" value="${group.id}" id="group-${group.id}">
+                    <label class="form-check-label" for="group-${group.id}">
+                        ${group.name}
+                        <small class="text-muted">(${group.memberCount} members)</small>
+                    </label>
+                </div>
+            </div>
+        `;
+        
+        // Add event listener for checkbox
+        const checkbox = groupItem.querySelector('input[type="checkbox"]');
+        checkbox.addEventListener('change', () => handleGroupSelection(checkbox));
+        
+        whatsappGroupsList.appendChild(groupItem);
+    });
+}
+
+// Function to handle group selection
+function handleGroupSelection(checkbox) {
+    const groupId = checkbox.value;
+    const group = whatsappGroups.find(g => g.id === groupId);
+    
+    if (checkbox.checked) {
+        if (!selectedListGroups.some(g => g.id === groupId)) {
+            selectedListGroups.push({
+                id: groupId,
+                name: group.name,
+                type: 'GROUP'
+            });
+        }
+    } else {
+        selectedListGroups = selectedListGroups.filter(g => g.id !== groupId);
+    }
+    
+    updateSelectedCount();
+    validateForm();
+}
+
+// Update the validateForm function to work with selected groups
+function validateForm() {
+    // Allow sending if either there's a caption or a file, AND there are recipients
+    if ((selectedGroups.length > 0 || selectedListGroups.length > 0) && (selectedFile || captionInput.value.trim())) {
+        sendBtn.disabled = false;
+        // Update button text based on what we're sending
+        if (selectedFile) {
+            if (selectedFile.type.startsWith('image/')) {
+                sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Media & Text';
+            } else if (selectedFile.type.startsWith('video/')) {
+                sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Media & Text';
+            } else {
+                sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Document & Text';
+            }
+        } else if (captionInput.value.trim()) {
+            sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Text Only';
+        }
+    } else {
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send to All';
+    }
+}
+
+// Update the selected count display
+function updateSelectedCount() {
+    const selectedCountEl = document.getElementById('selectedCount');
+    const totalSelected = selectedGroups.length + selectedListGroups.length;
+    
+    selectedCountEl.textContent = totalSelected > 0 ? `${totalSelected} selected` : '';
+}
+
+// Reset the form fields
+function resetForm() {
+    // Clear file input and previews
+    selectedFiles = [];
+    document.getElementById('mediaCounter').textContent = '';
+    document.getElementById('preview').innerHTML = '';
+    document.getElementById('previewText').style.display = 'block';
+    
+    // Clear caption input
+    captionInput.value = '';
+    
+    // Reset group selections
+    selectedGroups = [];
+    selectedListGroups = [];
+    document.getElementById('selectedListInfo').innerHTML = '';
+    
+    // Disable send button
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send to All';
+}
+
+// ---------------------------------------------------------
+// Excel Import Functions
+// ---------------------------------------------------------
+
+// Toggle new list name input based on selection
+if (excelListTypeSelect) {
+    excelListTypeSelect.addEventListener('change', function() {
+        if (this.value === 'new') {
+            newListNameContainer.classList.remove('d-none');
+            newListNameInput.required = true;
+        } else {
+            newListNameContainer.classList.add('d-none');
+            newListNameInput.required = false;
+        }
+    });
+}
+
+// Enable import button when Excel file is selected
+if (excelFileInput) {
+    excelFileInput.addEventListener('change', function() {
+        importExcelBtn.disabled = !this.files.length;
+    });
+}
+
+// Handle Excel import
+if (importExcelBtn) {
+    importExcelBtn.addEventListener('click', async function() {
+        if (!excelFileInput.files.length) {
+            addStatusMessage('Please select an Excel file to import', 'error');
+            return;
+        }
+        
+        let listName;
+        const createNewList = excelListTypeSelect.value === 'new';
+        
+        if (createNewList) {
+            if (!newListNameInput.value.trim()) {
+                addStatusMessage('Please enter a name for the new list', 'error');
+                return;
+            }
+            listName = newListNameInput.value.trim();
+        } else {
+            if (!excelListTypeSelect.value) {
+                addStatusMessage('Please select a target list', 'error');
+                return;
+            }
+            listName = excelListTypeSelect.value;
+        }
+        
+        const formData = new FormData();
+        formData.append('excelFile', excelFileInput.files[0]);
+        formData.append('listName', listName);
+        formData.append('createNewList', createNewList);
+        formData.append('sheetName', sheetNameInput.value || 'Data sheet');
+        
+        try {
+            importExcelBtn.disabled = true;
+            importExcelBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing...';
+            
+            const response = await fetch('/import-excel', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                addStatusMessage(`<i class="fas fa-check-circle"></i> ${result.message}`, 'success');
+                
+                // Clear the form
+                excelFileInput.value = '';
+                if (createNewList) {
+                    newListNameInput.value = '';
+                }
+                
+                // Update the view list dropdown
+                await loadContactLists();
+                
+                // Select the imported list in the view dropdown
+                viewListTypeSelect.value = listName;
+                viewListTypeSelect.dispatchEvent(new Event('change'));
+            } else {
+                addStatusMessage(`<i class="fas fa-exclamation-triangle"></i> ${result.message}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error importing Excel:', error);
+            addStatusMessage(`<i class="fas fa-exclamation-circle"></i> Error importing Excel: ${error.message}`, 'error');
+        } finally {
+            importExcelBtn.disabled = false;
+            importExcelBtn.innerHTML = '<i class="fas fa-file-import"></i> Import Data';
+        }
+    });
+}
+
+// Handle download template button
+if (downloadTemplateBtn) {
+    downloadTemplateBtn.addEventListener('click', function() {
+        downloadExcelTemplate();
+    });
+}
+
+// Function to download an Excel template
+function downloadExcelTemplate() {
+    try {
+        // Create sample data with the exact columns from the user's format
+        const templateData = [
+            {
+                'PARTY CODE': 'AA-123',
+                'PARTY GROUP NAME': 'Sample Group Name',
+                'GROUP ID/ PHONE NUMBER': '1234567890',
+                'TYPE': 'GROUP',
+                'TIER': 'AAGNA'
+            },
+            {
+                'PARTY CODE': 'AA-124',
+                'PARTY GROUP NAME': 'Sample Personal Contact',
+                'GROUP ID/ PHONE NUMBER': '9876543210',
+                'TYPE': 'PERSONAL',
+                'TIER': 'TRIONE'
+            },
+            {
+                'PARTY CODE': 'AA-125',
+                'PARTY GROUP NAME': 'OEM Example',
+                'GROUP ID/ PHONE NUMBER': '5555555555',
+                'TYPE': 'GROUP',
+                'TIER': 'OEM'
+            },
+            {
+                'PARTY CODE': 'AA-126',
+                'PARTY GROUP NAME': 'Management Contact',
+                'GROUP ID/ PHONE NUMBER': '6666666666',
+                'TYPE': 'PERSONAL',
+                'TIER': 'MANAGEMENT'
+            }
+        ];
+        
+        // Create a worksheet with the template data
+        const worksheet = xlsx.utils.json_to_sheet(templateData);
+        
+        // Set column widths for better readability
+        const colWidths = [
+            { wch: 12 }, // PARTY CODE
+            { wch: 30 }, // PARTY GROUP NAME
+            { wch: 20 }, // GROUP ID/ PHONE NUMBER
+            { wch: 10 }, // TYPE
+            { wch: 15 }  // TIER
+        ];
+        
+        worksheet['!cols'] = colWidths;
+        
+        // Add notes about the format in cell A6
+        xlsx.utils.sheet_add_aoa(worksheet, [
+            ['NOTES:'],
+            ['- GROUP ID/ PHONE NUMBER: For group contacts, use the group ID; for personal contacts, use the phone number'],
+            ['- TYPE: Must be either "GROUP" or "PERSONAL"'],
+            ['- TIER: Should be one of: "AAGNA", "TRIONE", "OEM", or "MANAGEMENT"']
+        ], { origin: 'A6' });
+        
+        // Create a new workbook and append the worksheet
+        const workbook = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(workbook, worksheet, 'Data sheet');
+        
+        // Generate Excel file
+        const excelData = xlsx.write(workbook, { bookType: 'xlsx', type: 'array' });
+        
+        // Create a Blob and download the file
+        const blob = new Blob([excelData], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'whatsapp-contacts-template.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        addStatusMessage('Excel template downloaded', 'success');
+    } catch (error) {
+        console.error('Error creating template:', error);
+        addStatusMessage(`Error creating template: ${error.message}`, 'error');
+    }
+}
+
+// ---------------------------------------------------------
+// Contact Management Functions
+// ---------------------------------------------------------
+
+// Load all contact lists for the dropdowns
+async function loadContactLists() {
+    try {
+        // Check if last update was less than 5 seconds ago, if so skip this update
+        const now = Date.now();
+        const lastListsCheck = window.lastListsCheck || 0;
+        
+        if (now - lastListsCheck < 5000) {
+            console.log('Skipping contact lists check - too frequent');
+            return;
+        }
+        
+        window.lastListsCheck = now;
+        
+        const response = await fetch('/contact-lists');
+        
+        if (response.status === 429) {
+            console.log('Rate limit hit, will retry contact lists check later');
+            // Schedule a retry after 10 seconds
+            setTimeout(loadContactLists, 10000);
+            return;
+        }
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update both list dropdowns
+            updateListDropdowns(data.lists);
+        } else {
+            console.error('Error loading contact lists:', data.message);
+            throw new Error(data.message);
+        }
+    } catch (error) {
+        console.error('Error loading contact lists:', error);
+        // Don't show UI error for rate limit errors
+        if (!error.message.includes('429') && !error.message.includes('Rate limit')) {
+            addStatusMessage(`Error loading contact lists: ${error.message}`, 'error');
+        }
+    }
+}
+
+// Update the dropdowns with list names
+function updateListDropdowns(lists) {
+    // Options to keep at the top
+    const defaultSendOptions = `
+        <option value="" disabled selected>Choose a recipient list...</option>
+    `;
+    
+    const defaultExcelOptions = `
+        <option value="" disabled selected>Select a list to import to...</option>
+        <option value="new">Create New List</option>
+    `;
+    
+    const defaultViewOptions = `
+        <option value="" disabled selected>Select a list to view...</option>
+    `;
+    
+    // Create the list options
+    let listOptions = '';
+    for (const [name, count] of Object.entries(lists)) {
+        listOptions += `<option value="${name}">${name} (${count})</option>`;
+    }
+    
+    // Update the dropdowns
+    if (listTypeSelect) {
+        listTypeSelect.innerHTML = defaultSendOptions + listOptions;
+    }
+    
+    if (excelListTypeSelect) {
+        excelListTypeSelect.innerHTML = defaultExcelOptions + listOptions;
+    }
+    
+    if (viewListTypeSelect) {
+        viewListTypeSelect.innerHTML = defaultViewOptions + listOptions;
+    }
+}
+
+// Handle contact list selection for viewing
+if (viewListTypeSelect) {
+    viewListTypeSelect.addEventListener('change', async function() {
+        const listName = this.value;
+        
+        // Toggle action buttons
+        deleteListBtn.disabled = !listName;
+        exportListBtn.disabled = !listName;
+        fetchGroupDetailsBtn.disabled = !listName;
+        
+        if (!listName) {
+            showEmptyContactList('Select a list to view contacts');
+            return;
+        }
+        
+        try {
+            // Show loading state
+            contactsTableBody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="text-center">
+                        <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        Loading contacts...
+                    </td>
+                </tr>
+            `;
+            
+            const response = await fetch(`/contact-lists/${listName}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                if (data.contacts && data.contacts.length > 0) {
+                    // Store the contacts and render the first page
+                    currentPageContacts = data.contacts;
+                    currentPage = 1;
+                    renderContactsPage();
+                } else {
+                    showEmptyContactList('No contacts found in this list');
+                }
+            } else {
+                showEmptyContactList(`Error: ${data.message}`);
+            }
+        } catch (error) {
+            console.error('Error loading contact list:', error);
+            showEmptyContactList(`Error loading contacts: ${error.message}`);
+        }
+    });
+}
+
+// Function to render contacts page
+function renderContactsPage() {
+    if (!currentPageContacts.length) {
+        showEmptyContactList('No contacts found');
+        return;
+    }
+    
+    // Calculate pagination
+    const totalPages = Math.ceil(currentPageContacts.length / pageSize);
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, currentPageContacts.length);
+    const pageContacts = currentPageContacts.slice(startIndex, endIndex);
+    
+    // Clear the table
+    contactsTableBody.innerHTML = '';
+    
+    // Add contacts to the table
+    pageContacts.forEach(contact => {
+        const row = document.createElement('tr');
+        
+        // Determine badge colors based on tier
+        let tierBadgeClass = 'bg-secondary';
+        switch (contact.tier?.toUpperCase()) {
+            case 'AAGNA':
+                tierBadgeClass = 'bg-success';
+                break;
+            case 'TRIONE':
+                tierBadgeClass = 'bg-primary';
+                break;
+            case 'OEM':
+                tierBadgeClass = 'bg-info';
+                break;
+            case 'MANAGEMENT':
+                tierBadgeClass = 'bg-warning';
+                break;
+        }
+        
+        // Format ID for display
+        const displayId = String(contact.id || '')
+            .replace('@g.us', '')
+            .replace('@s.whatsapp.net', '');
+        
+        row.innerHTML = `
+            <td>${contact.code || '-'}</td>
+            <td>${contact.name}</td>
+            <td><code>${displayId}</code></td>
+            <td><span class="badge bg-${contact.type === 'GROUP' ? 'primary' : 'secondary'}">${contact.type}</span></td>
+            <td><span class="badge ${tierBadgeClass}">${contact.tier || '-'}</span></td>
+            <td>
+                <button type="button" class="btn btn-sm btn-outline-primary btn-action view-details-btn" data-id="${contact.id}" data-name="${contact.name}" data-type="${contact.type}">
+                    <i class="fas fa-info-circle"></i>
+                </button>
+            </td>
+        `;
+        
+        contactsTableBody.appendChild(row);
+    });
+    
+    // Add event listeners to the view details buttons
+    document.querySelectorAll('.view-details-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const id = this.dataset.id;
+            const name = this.dataset.name;
+            const type = this.dataset.type;
+            
+            if (type === 'GROUP') {
+                showGroupDetails(id, name);
+            } else {
+                showContactDetails(id, name);
+            }
+        });
+    });
+    
+    // Update pagination info
+    document.getElementById('paginationStart').textContent = startIndex + 1;
+    document.getElementById('paginationEnd').textContent = endIndex;
+    document.getElementById('paginationTotal').textContent = currentPageContacts.length;
+    
+    // Update pagination controls
+    updatePaginationControls(totalPages);
+}
+
+// Function to update pagination controls
+function updatePaginationControls(totalPages) {
+    const controls = document.getElementById('paginationControls');
+    controls.innerHTML = '';
+    
+    // Previous button
+    const prevLi = document.createElement('li');
+    prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+    prevLi.innerHTML = `<button class="page-link" ${currentPage === 1 ? 'disabled' : ''}>Previous</button>`;
+    if (currentPage > 1) {
+        prevLi.querySelector('button').addEventListener('click', () => {
+            currentPage--;
+            renderContactsPage();
+        });
+    }
+    controls.appendChild(prevLi);
+    
+    // Page buttons
+    const maxPages = 5;
+    const startPage = Math.max(1, currentPage - Math.floor(maxPages / 2));
+    const endPage = Math.min(totalPages, startPage + maxPages - 1);
+    
+    for (let i = startPage; i <= endPage; i++) {
+        const pageLi = document.createElement('li');
+        pageLi.className = `page-item ${i === currentPage ? 'active' : ''}`;
+        pageLi.innerHTML = `<button class="page-link">${i}</button>`;
+        
+        if (i !== currentPage) {
+            pageLi.querySelector('button').addEventListener('click', () => {
+                currentPage = i;
+                renderContactsPage();
+            });
+        }
+        
+        controls.appendChild(pageLi);
+    }
+    
+    // Next button
+    const nextLi = document.createElement('li');
+    nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+    nextLi.innerHTML = `<button class="page-link" ${currentPage === totalPages ? 'disabled' : ''}>Next</button>`;
+    if (currentPage < totalPages) {
+        nextLi.querySelector('button').addEventListener('click', () => {
+            currentPage++;
+            renderContactsPage();
+        });
+    }
+    controls.appendChild(nextLi);
+}
+
+// Function to show empty contact list
+function showEmptyContactList(message) {
+    contactsTableBody.innerHTML = `
+        <tr>
+            <td colspan="6" class="text-center">${message}</td>
+        </tr>
+    `;
+    
+    // Reset pagination
+    document.getElementById('paginationStart').textContent = '0';
+    document.getElementById('paginationEnd').textContent = '0';
+    document.getElementById('paginationTotal').textContent = '0';
+    document.getElementById('paginationControls').innerHTML = '';
+}
+
+// Function to show group details
+async function showGroupDetails(groupId, groupName) {
+    // Ensure groupId is a string
+    groupId = String(groupId || '');
+    
+    groupDetailsContent.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Fetching group details for "${groupName}"...</p>
+        </div>
+    `;
+    
+    document.getElementById('groupDetailsModalLabel').textContent = `Group: ${groupName}`;
+    groupDetailsModal.show();
+    
+    try {
+        const response = await fetch(`/group-details/${groupId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const group = data.group;
+            currentGroupDetails = group;
+            
+            // Generate a fallback profile image if not available
+            const avatarUrl = group.profilePictureUrl || 
+                `https://ui-avatars.com/api/?name=${encodeURIComponent(group.subject)}&background=128C7E&color=fff&size=120`;
+            
+            // Format creation date
+            const creationDate = group.creation ? new Date(group.creation * 1000).toLocaleString() : 'Unknown';
+            
+            groupDetailsContent.innerHTML = `
+                <div class="group-details-container">
+                    <div class="group-avatar-container">
+                        <img src="${avatarUrl}" alt="${group.subject}" class="group-avatar" 
+                            onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(group.subject)}&background=128C7E&color=fff&size=120';">
+                        <span class="group-type-badge">GROUP</span>
+                    </div>
+                    
+                    <div class="group-info">
+                        <h3 class="group-name">${group.subject}</h3>
+                        <div class="group-id">${group.id}</div>
+                        
+                        <div class="group-meta mb-3">
+                            <div><strong>Created:</strong> ${creationDate}</div>
+                            <div><strong>Participants:</strong> ${group.participants.length}</div>
+                            ${group.description ? `<div class="mt-2"><strong>Description:</strong> ${group.description}</div>` : ''}
+                        </div>
+                    </div>
+                    
+                    <div class="group-details-tabs">
+                        <ul class="nav nav-tabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="participants-tab" data-bs-toggle="tab" data-bs-target="#participants-tab-pane" type="button" role="tab">
+                                    Participants (${group.participants.length})
+                                </button>
+                            </li>
+                        </ul>
+                        
+                        <div class="tab-content group-details-tab-content">
+                            <div class="tab-pane fade show active" id="participants-tab-pane" role="tabpanel" tabindex="0">
+                                <div class="participants-list">
+                                    ${renderParticipantsList(group.participants)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            groupDetailsContent.innerHTML = `
+                <div class="alert alert-danger" role="alert">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    ${data.message}
+                </div>
+                <p class="text-center">Make sure you are a member of this group and the group ID is correct.</p>
+            `;
+        }
+    } catch (error) {
+        console.error('Error fetching group details:', error);
+        groupDetailsContent.innerHTML = `
+            <div class="alert alert-danger" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Error fetching group details: ${error.message}
+            </div>
+        `;
+    }
+}
+
+// Function to render participants list
+function renderParticipantsList(participants) {
+    if (!participants || participants.length === 0) {
+        return '<p class="text-center">No participants found</p>';
+    }
+    
+    // Sort participants by admin status (admins first)
+    participants.sort((a, b) => {
+        if (a.isAdmin && !b.isAdmin) return -1;
+        if (!a.isAdmin && b.isAdmin) return 1;
+        return 0;
+    });
+    
+    let html = '';
+    
+    participants.forEach(participant => {
+        const name = participant.id.split('@')[0];
+        const avatarUrl = `https://ui-avatars.com/api/?name=${name}&background=075E54&color=fff&size=64`;
+        
+        html += `
+            <div class="member-item">
+                <img src="${avatarUrl}" alt="${name}" class="member-avatar">
+                <div class="member-info">
+                    <div class="member-name">${name}</div>
+                    <div class="member-phone">${participant.id}</div>
+                </div>
+                ${participant.isAdmin ? '<span class="member-role">Admin</span>' : ''}
+            </div>
+        `;
+    });
+    
+    return html;
+}
+
+// Function to show contact details
+function showContactDetails(contactId, contactName) {
+    // Ensure contactId is a string
+    contactId = String(contactId || '');
+    
+    // Set up the modal
+    const detailsModal = document.getElementById('groupDetailsModal');
+    const modalTitle = document.getElementById('groupDetailsModalLabel');
+    const modalContent = document.getElementById('groupDetailsContent');
+    
+    // Update modal title and show loading state
+    modalTitle.textContent = `Contact Details: ${contactName}`;
+    modalContent.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Fetching contact details...</p>
+        </div>
+    `;
+    
+    // Show the modal
+    const modal = bootstrap.Modal.getInstance(detailsModal) || new bootstrap.Modal(detailsModal);
+    modal.show();
+    
+    // Check if the contact ID is valid
+    if (!contactId || !contactId.includes('@')) {
+        modalContent.innerHTML = `
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Invalid contact ID format. The ID should include @s.whatsapp.net
+            </div>
+            <p>Contact ID: <code>${contactId}</code></p>
+            <p>Please make sure the contact has a valid WhatsApp ID.</p>
+        `;
+        return;
+    }
+    
+    // Fetch contact details from the API
+    fetch(`/contact-details/${encodeURIComponent(contactId)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.contact) {
+                const contact = data.contact;
+                
+                // Prepare the profile picture with fallback
+                const profilePicHtml = contact.profilePictureUrl
+                    ? `<img src="${contact.profilePictureUrl}" class="img-fluid rounded contact-profile-pic" alt="${contactName}" 
+                        onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(contactName)}&background=075E54&color=fff&size=120';">`
+                    : `<div class="contact-profile-placeholder">
+                          <i class="fas fa-user fa-4x"></i>
+                       </div>`;
+                
+                // Format the phone number for display
+                const phoneNumber = contactId.split('@')[0];
+                
+                // Build the contact details HTML
+                modalContent.innerHTML = `
+                    <div class="contact-details-container">
+                        <div class="contact-header d-flex align-items-center mb-4">
+                            <div class="contact-pic-container me-3">
+                                ${profilePicHtml}
+                            </div>
+                            <div class="contact-header-info flex-grow-1">
+                                <h3 class="mb-1">${contactName}</h3>
+                                <p class="text-muted mb-0">
+                                    <i class="fas fa-phone me-1"></i> 
+                                    ${phoneNumber}
+                                </p>
+                                ${contact.status ? `<p class="text-muted mb-0"><small>Status: ${contact.status}</small></p>` : ''}
+                            </div>
+                        </div>
+                        
+                        <div class="contact-actions mb-4">
+                            <a href="https://wa.me/${phoneNumber}" class="btn btn-success btn-sm" target="_blank">
+                                <i class="fab fa-whatsapp me-1"></i> Open in WhatsApp
+                            </a>
+                        </div>
+                        
+                        <div class="contact-section">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <strong>Phone:</strong> 
+                                        <a href="tel:${phoneNumber}">${phoneNumber}</a>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <strong>WhatsApp ID:</strong> 
+                                        <code>${contactId}</code>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                modalContent.innerHTML = `
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        ${data.message || "Could not fetch contact details"}
+                    </div>
+                    <p>Contact ID: <code>${contactId}</code></p>
+                    <p>The contact may not be available or you may not have access to view their details.</p>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching contact details:', error);
+            modalContent.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    Error fetching contact details
+                </div>
+                <p>Error details: ${error.message}</p>
+                <p>Please try again later or check the server logs for more information.</p>
+            `;
+        });
+}
+
+// Socket.IO client integration
+// Global socket connection
+const socket = io();
+
+// Socket event handlers
+socket.on('sendProgress', function(data) {
+    if (data.processId) {
+        // Update progress bar
+        const progressBar = document.querySelector('.progress-bar');
+        const sentCountEl = document.getElementById('sentCount');
+        const totalCountEl = document.getElementById('totalCount');
+        
+        progressBar.style.width = `${data.progress}%`;
+        progressBar.setAttribute('aria-valuenow', data.progress);
+        sentCountEl.textContent = data.sentCount;
+        totalCountEl.textContent = data.totalCount;
+        
+        // Add status message
+        addStatusMessage(`Sent ${data.sentCount} of ${data.totalCount} messages (${data.progress}%)`, 'info');
+    }
+});
+
+socket.on('sendError', function(data) {
+    if (data.processId) {
+        addStatusMessage(`Error: ${data.error}`, 'error');
+    }
+});

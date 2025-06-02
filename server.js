@@ -4,6 +4,8 @@ const fs = require('fs');
 const fsExtra = require('fs-extra');
 const path = require('path');
 const xlsx = require('xlsx');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 
@@ -56,8 +58,10 @@ async function retry(operation, maxAttempts = 3, initialDelay = 1000) {
     throw lastError;
 }
 
-// Create Express app
+// Create Express app and HTTP server
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer);
 const port = 3000;
 
 // Add rate limiting middleware
@@ -191,7 +195,21 @@ const storage = multer.diskStorage({
     }
 });
 
-const upload = multer({ storage: storage });
+// Configure multer for multiple files
+const upload = multer({
+    storage: multer.diskStorage({
+        destination: function (req, file, cb) {
+            cb(null, 'uploads/')
+        },
+        filename: function (req, file, cb) {
+            cb(null, Date.now() + '-' + file.originalname)
+        }
+    }),
+    limits: {
+        files: 5, // Maximum 5 files
+        fileSize: 100 * 1024 * 1024 // 100MB max file size
+    }
+});
 
 // Add json and urlencoded middleware for handling post data
 app.use(express.json());
@@ -435,34 +453,48 @@ async function initializeWhatsAppConnection() {
     }
 }
 
-// Endpoint to handle uploads and send WhatsApp messages
-app.post('/send-media', upload.single('media'), async (req, res) => {
+// Endpoint to get all participating WhatsApp groups
+app.get('/whatsapp-groups', async (req, res) => {
     try {
-        // Check if this is a text-only message - convert string to boolean properly
+        await ensureWhatsAppConnection();
+        
+        // Fetch all participating groups
+        const chats = await whatsappSocket.groupFetchAllParticipating();
+        
+        // Format the groups data
+        const groups = Object.entries(chats).map(([id, group]) => ({
+            id: id,
+            name: group.subject,
+            memberCount: group.participants.length,
+            description: group.desc?.text || '',
+            isSelected: false
+        }));
+        
+        res.json({
+            success: true,
+            groups: groups
+        });
+    } catch (error) {
+        console.error('Error fetching WhatsApp groups:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching WhatsApp groups: ' + error.message
+        });
+    }
+});
+
+// Endpoint to handle uploads and send WhatsApp messages
+app.post('/send-media', upload.array('media', 5), async (req, res) => {
+    try {
+        const caption = req.body.caption;
+        const groups = JSON.parse(req.body.groups);
         const isTextOnly = req.body.isTextOnly === 'true';
-        console.log('Is text only?', isTextOnly, 'Value:', req.body.isTextOnly);
         
-        const caption = req.body.caption || '';
-        let groups;
-        
-        try {
-            groups = JSON.parse(req.body.groups || '[]');
-        } catch (e) {
-            return res.status(400).json({ success: false, message: 'Invalid groups format' });
-        }
-        
-        if (!groups.length) {
-            return res.status(400).json({ success: false, message: 'No recipients specified' });
-        }
-
-        // For text-only messages, we need a caption
-        if (isTextOnly && !caption.trim()) {
-            return res.status(400).json({ success: false, message: 'Text message cannot be empty' });
-        }
-
-        // For media messages, we need a file
-        if (!isTextOnly && !req.file) {
-            return res.status(400).json({ success: false, message: 'No file uploaded for media message' });
+        if (!Array.isArray(groups) || groups.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No recipients specified'
+            });
         }
 
         // Try to establish WhatsApp connection before starting the process
@@ -477,13 +509,14 @@ app.post('/send-media', upload.single('media'), async (req, res) => {
 
         // Start the sending process asynchronously
         const processId = Date.now().toString();
-        const mediaPath = req.file ? req.file.path : null;
-        const mimeType = req.file ? req.file.mimetype : null;
+        const mediaFiles = req.files || [];
+        const mimeTypes = mediaFiles.map(file => file.mimetype);
+        const mediaPaths = mediaFiles.map(file => file.path);
         
         if (isTextOnly) {
             sendTextToGroups(caption, groups, processId);
         } else {
-            sendMediaToGroups(mediaPath, caption, groups, mimeType, processId);
+            sendMultipleMediaToGroups(mediaPaths, caption, groups, mimeTypes, processId);
         }
         
         // Return immediately with a success response and ID
@@ -498,6 +531,59 @@ app.post('/send-media', upload.single('media'), async (req, res) => {
         return res.status(500).json({ success: false, message: 'Server error: ' + error.message });
     }
 });
+
+// Function to send multiple media files to groups
+async function sendMultipleMediaToGroups(mediaPaths, caption, groups, mimeTypes, processId) {
+    let sentCount = 0;
+    const totalGroups = groups.length;
+    
+    try {
+        for (const group of groups) {
+            try {
+                // Send each media file to the group
+                for (let i = 0; i < mediaPaths.length; i++) {
+                    const mediaPath = mediaPaths[i];
+                    const mimeType = mimeTypes[i];
+                    const mediaMessage = {
+                        caption: i === 0 ? caption : '', // Only include caption with first media
+                    };
+
+                    if (mimeType.startsWith('image/')) {
+                        mediaMessage.image = { url: mediaPath };
+                    } else if (mimeType.startsWith('video/')) {
+                        mediaMessage.video = { url: mediaPath };
+                    } else {
+                        mediaMessage.document = { url: mediaPath };
+                    }
+
+                    await sock.sendMessage(group.id, mediaMessage);
+                }
+
+                sentCount++;
+                // Calculate and emit progress
+                const progress = Math.round((sentCount / totalGroups) * 100);
+                io.emit('sendProgress', { processId, progress, sentCount, totalCount: totalGroups });
+                
+            } catch (groupError) {
+                console.error(`Error sending to group ${group.id}:`, groupError);
+                io.emit('sendError', { 
+                    processId, 
+                    error: `Failed to send to ${group.name}: ${groupError.message}` 
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Error in sendMultipleMediaToGroups:', error);
+        io.emit('sendError', { processId, error: 'Process error: ' + error.message });
+    } finally {
+        // Clean up uploaded files
+        for (const mediaPath of mediaPaths) {
+            fs.unlink(mediaPath, (err) => {
+                if (err) console.error('Error deleting file:', err);
+            });
+        }
+    }
+}
 
 // Endpoint to process Excel file and import contacts
 app.post('/import-excel', upload.single('excelFile'), async (req, res) => {
@@ -1346,11 +1432,9 @@ app.get('/get-qr-code', (req, res) => {
     }
 });
 
-// Initialize WhatsApp connection when server starts - NO LONGER NECESSARY
+// Only start the server if this file is run directly
 if (require.main === module) {
-    // Only start the server if this file is run directly
-    // We no longer automatically connect to WhatsApp on server start
-    app.listen(port, () => {
+    httpServer.listen(port, () => {
         console.log(`Server running at http://localhost:${port}`);
         console.log(`Open http://localhost:${port} in your browser to use the WhatsApp bulk sender`);
         console.log(`WhatsApp connection will be established when needed`);
